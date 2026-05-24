@@ -1,0 +1,447 @@
+// ============================================
+// MINI-GAME PLATFORM - Complete Database Schema
+// ============================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ─── USER & AUTH ────────────────────────────
+
+model User {
+  id            String   @id @default(cuid())
+  username      String   @unique
+  email         String   @unique
+  passwordHash  String
+  avatar        String   @default("/avatars/default.png")
+  role          String   @default("user") // user, moderator, admin
+  isBanned      Boolean  @default(false)
+  banReason     String?
+  isOnline      Boolean  @default(false)
+  lastSeen      DateTime @default(now())
+
+  // Level & Experience
+  level         Int      @default(1)
+  experience    Int      @default(0)
+  experienceToNext Int   @default(100)
+
+  // Currency
+  coins         Float    @default(0)
+  gems          Float    @default(0)
+  miningTokens  Float    @default(0)
+
+  // Referral
+  referralCode  String   @unique
+  referredBy    String?
+  referralEarnings Float @default(0)
+
+  // VIP
+  vipPlan       String   @default("free") // free, bronze, silver, gold, platinum
+  vipExpiresAt  DateTime?
+
+  // Mining
+  miningPower   Float    @default(1.0)
+  miningRate    Float    @default(0.1) // tokens per minute
+  lastMiningClaim DateTime @default(now())
+  miningUpgrades String  @default("[]") // JSON array of upgrade IDs
+
+  // Stats
+  gamesPlayed   Int      @default(0)
+  gamesWon      Int      @default(0)
+  totalPlayTime Int      @default(0) // in minutes
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  // Relations
+  gameSessions     GameSession[]
+  chatMessages     ChatMessage[]
+  referralsMade    Referral[]     @relation("Referrer")
+  referralReceived Referral?      @relation("Referred")
+  transactions     Transaction[]
+  inventory        InventoryItem[]
+  adViews          AdView[]
+  miningActivities MiningActivity[]
+  notifications    Notification[]
+  vipBenefits      VipBenefitUsage[]
+  dailyRewards     DailyReward[]
+  gameScores       GameScore[]
+  friendRequestsSent   FriendRequest[] @relation("Sender")
+  friendRequestsReceived FriendRequest[] @relation("Receiver")
+  friendships     Friendship[]   @relation("User1")
+  friendships2    Friendship[]   @relation("User2")
+  sessions     Session[]
+}
+
+// ─── SESSION ────────────────────────────────
+
+model Session {
+  id           String   @id @default(cuid())
+  userId       String
+  token        String   @unique
+  deviceInfo   String?
+  ipAddress    String?
+  expiresAt    DateTime
+  createdAt    DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// ─── GAME SYSTEM ────────────────────────────
+
+model Game {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  slug        String   @unique
+  description String
+  thumbnail   String   @default("/games/default.png")
+  category    String   @default("arcade") // arcade, puzzle, strategy, racing, casino
+  gameType    String   @default("single") // single, multiplayer
+  difficulty  String   @default("easy") // easy, medium, hard
+  isActive    Boolean  @default(true)
+  playCount   Int      @default(0)
+  rating      Float    @default(0)
+  minLevel    Int      @default(1)
+  coinReward  Int      @default(10)
+  xpReward    Int      @default(20)
+  config      String   @default("{}") // JSON game configuration
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  sessions    GameSession[]
+  scores      GameScore[]
+}
+
+model GameSession {
+  id          String   @id @default(cuid())
+  userId      String
+  gameId      String
+  score       Int      @default(0)
+  duration    Int      @default(0) // seconds
+  result      String   @default("in_progress") // in_progress, won, lost, draw, abandoned
+  rewards     String   @default("{}") // JSON rewards earned
+  startedAt   DateTime @default(now())
+  endedAt     DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  game Game @relation(fields: [gameId], references: [id], onDelete: Cascade)
+}
+
+model GameScore {
+  id        String   @id @default(cuid())
+  userId    String
+  gameId    String
+  score     Int
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  game Game @relation(fields: [gameId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, gameId])
+}
+
+// ─── LEVEL SYSTEM ───────────────────────────
+
+model LevelConfig {
+  id             String   @id @default(cuid())
+  level          Int      @unique
+  experienceRequired Int
+  coinBonus      Int      @default(0)
+  miningBonus    Float    @default(0)
+  title          String   @default("Novato")
+  perk           String?  // description of level perk
+}
+
+// ─── CHAT SYSTEM ────────────────────────────
+
+model ChatMessage {
+  id        String   @id @default(cuid())
+  userId    String
+  roomId    String   @default("general")
+  content   String
+  type      String   @default("text") // text, system, emote, trade
+  isDeleted Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model ChatRoom {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  description String?
+  type        String   @default("public") // public, private, trade, vip
+  minLevel    Int      @default(1)
+  maxUsers    Int      @default(100)
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+}
+
+// ─── REFERRAL SYSTEM ────────────────────────
+
+model Referral {
+  id            String   @id @default(cuid())
+  referrerId    String
+  referredId    String   @unique
+  status        String   @default("pending") // pending, completed, rewarded
+  rewardClaimed Boolean  @default(false)
+  createdAt     DateTime @default(now())
+  completedAt   DateTime?
+
+  referrer User @relation("Referrer", fields: [referrerId], references: [id], onDelete: Cascade)
+  referred User @relation("Referred", fields: [referredId], references: [id], onDelete: Cascade)
+}
+
+// ─── MINING SYSTEM ──────────────────────────
+
+model MiningActivity {
+  id          String   @id @default(cuid())
+  userId      String
+  tokensMined Float
+  miningPower Float
+  duration    Int      @default(0) // minutes
+  createdAt   DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model MiningUpgrade {
+  id          String   @id @default(cuid())
+  name        String
+  description String
+  cost        Float
+  powerBoost  Float
+  level       Int      @default(1)
+  category    String   @default("hardware") // hardware, software, energy
+  icon        String   @default("⛏️")
+  isActive    Boolean  @default(true)
+}
+
+model ShopItem {
+  id          String   @id @default(cuid())
+  name        String
+  description String
+  category    String   @default("mining") // mining, cosmetic, boost, special
+  price       Float
+  currency    String   @default("coins") // coins, gems, miningTokens
+  icon        String   @default("📦")
+  effect      String   @default("{}") // JSON effect description
+  stock       Int      @default(-1) // -1 = unlimited
+  minLevel    Int      @default(1)
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  inventory   InventoryItem[]
+}
+
+model InventoryItem {
+  id        String   @id @default(cuid())
+  userId    String
+  itemId    String
+  quantity  Int      @default(1)
+  isActive  Boolean  @default(true)
+  acquiredAt DateTime @default(now())
+
+  user User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  item ShopItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, itemId])
+}
+
+// ─── PAYMENT / CRYPTO ───────────────────────
+
+model Transaction {
+  id            String   @id @default(cuid())
+  userId        String
+  type          String   // deposit, withdrawal, purchase, reward, referral, mining, vip
+  amount        Float
+  currency      String   @default("coins") // coins, gems, BTC, ETH, USDT, LTC
+  status        String   @default("pending") // pending, completed, failed, cancelled
+  txHash        String?  // blockchain transaction hash
+  walletAddress String?
+  description   String?
+  metadata      String   @default("{}") // JSON additional data
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model CryptoWallet {
+  id            String   @id @default(cuid())
+  userId        String
+  currency      String   // BTC, ETH, USDT, LTC
+  address       String   @unique
+  balance       Float    @default(0)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([userId, currency])
+}
+
+model CryptoPayment {
+  id            String   @id @default(cuid())
+  userId        String
+  amount        Float
+  currency      String   // BTC, ETH, USDT, LTC
+  walletAddress String
+  txHash        String?
+  status        String   @default("pending") // pending, confirmed, failed, expired
+  confirmations Int      @default(0)
+  requiredConfirmations Int @default(3)
+  expiresAt     DateTime
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([userId, currency, txHash])
+}
+
+// ─── VIP PLANS ──────────────────────────────
+
+model VipPlan {
+  id             String   @id @default(cuid())
+  name           String   @unique // bronze, silver, gold, platinum
+  price          Float
+  currency       String   @default("USDT")
+  durationDays   Int
+  coinBonus      Float    @default(0) // percentage bonus
+  miningBoost    Float    @default(1.0) // multiplier
+  xpBoost        Float    @default(1.0) // multiplier
+  dailyGems      Int      @default(0)
+  adFree         Boolean  @default(false)
+  exclusiveGames Boolean  @default(false)
+  priorityMatch  Boolean  @default(false)
+  customAvatar   Boolean  @default(false)
+  chatEffects    Boolean  @default(false)
+  description    String
+  color          String   @default("#6B7280") // brand color
+  icon           String   @default("⭐")
+  isActive       Boolean  @default(true)
+}
+
+model VipBenefitUsage {
+  id        String   @id @default(cuid())
+  userId    String
+  benefitType String  // daily_gems, bonus_claimed, etc.
+  usedAt    DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// ─── ADVERTISING SYSTEM ─────────────────────
+
+model AdCampaign {
+  id          String   @id @default(cuid())
+  title       String
+  description String?
+  advertiser  String
+  type        String   @default("banner") // banner, video, interstitial, rewarded
+  imageUrl    String?
+  videoUrl    String?
+  targetUrl   String
+  placement   String   @default("sidebar") // sidebar, top_banner, popup, game_interstitial
+  impressions Int      @default(0)
+  clicks      Int      @default(0)
+  maxImpressions Int   @default(10000)
+  views       AdView[]
+  reward      Float    @default(5) // coins reward for watching
+  isActive    Boolean  @default(true)
+  startsAt    DateTime @default(now())
+  expiresAt   DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model AdView {
+  id         String   @id @default(cuid())
+  userId     String
+  campaignId String
+  reward     Float
+  completed  Boolean  @default(false)
+  duration   Int      @default(0) // seconds watched
+  createdAt  DateTime @default(now())
+
+  user     User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  campaign AdCampaign  @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+}
+
+// ─── DAILY REWARDS ──────────────────────────
+
+model DailyReward {
+  id        String   @id @default(cuid())
+  userId    String
+  day       Int      @default(1) // day streak
+  reward    String   @default("{}") // JSON reward data
+  claimedAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, day])
+}
+
+// ─── NOTIFICATIONS ──────────────────────────
+
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String
+  title     String
+  message   String
+  type      String   @default("info") // info, warning, success, reward, system
+  isRead    Boolean  @default(false)
+  link      String?
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// ─── FRIENDS ────────────────────────────────
+
+model FriendRequest {
+  id         String   @id @default(cuid())
+  senderId   String
+  receiverId String
+  status     String   @default("pending") // pending, accepted, rejected
+  createdAt  DateTime @default(now())
+
+  sender   User @relation("Sender", fields: [senderId], references: [id], onDelete: Cascade)
+  receiver User @relation("Receiver", fields: [receiverId], references: [id], onDelete: Cascade)
+
+  @@unique([senderId, receiverId])
+}
+
+model Friendship {
+  id        String   @id @default(cuid())
+  user1Id   String
+  user2Id   String
+  createdAt DateTime @default(now())
+
+  user1 User @relation("User1", fields: [user1Id], references: [id], onDelete: Cascade)
+  user2 User @relation("User2", fields: [user2Id], references: [id], onDelete: Cascade)
+
+  @@unique([user1Id, user2Id])
+}
+
+// ─── ADMIN LOGS ─────────────────────────────
+
+model AdminLog {
+  id        String   @id @default(cuid())
+  adminId   String
+  action    String
+  target    String?
+  details   String   @default("{}") // JSON
+  createdAt DateTime @default(now())
+}
+
+// ─── SYSTEM CONFIG ──────────────────────────
+
+model SystemConfig {
+  id    String @id @default(cuid())
+  key   String @unique
+  value String
+}
